@@ -12,6 +12,10 @@ export const createDeployment = async (data: {
   });
 };
 
+export const countDeployments = async () => {
+  return prisma.deployment.count();
+};
+
 export const listDeployments = async () => {
   return prisma.deployment.findMany({
     orderBy: { createdAt: "desc" },
