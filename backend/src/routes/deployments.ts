@@ -5,6 +5,12 @@ import {
   getDeploymentById,
   listDeployments,
 } from "../services/deployment.service";
+import { runPipeline } from "../pipeline/runner";
+import {
+  getLogs,
+  subscribeLogs,
+  unsubscribeLogs,
+} from "../logs/log.store";
 
 const router = Router();
 
@@ -12,10 +18,7 @@ router.post("/", async (req, res) => {
   try {
     const { gitUrl } = req.body;
 
-    console.log("[deployments] POST /deployments body:", req.body);
-
     if (!gitUrl) {
-      console.warn("[deployments] missing gitUrl");
       return res.status(400).json({ error: "gitUrl is required" });
     }
 
@@ -24,11 +27,12 @@ router.post("/", async (req, res) => {
       source: gitUrl,
     });
 
-    console.log("[deployments] created deployment:", deployment.id);
-    return res.json(deployment);
+    // 🔥 Trigger pipeline async (non-blocking)
+    runPipeline(deployment.id);
+
+    res.json(deployment);
   } catch (err) {
-    console.error("[deployments] failed to create deployment:", err);
-    return res.status(500).json({ error: "Failed to create deployment" });
+    res.status(500).json({ error: "Failed to create deployment" });
   }
 });
 
@@ -66,5 +70,31 @@ router.get("/:id", async (req, res) => {
     return res.status(500).json({ error: "Failed to fetch deployment" });
   }
 });
+
+
+router.get("/:id/logs", (req, res) => {
+  const { id } = req.params;
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+
+  // Send existing logs first
+  const existingLogs = getLogs(id);
+  existingLogs.forEach((log) => {
+    res.write(`data: ${log}\n\n`);
+  });
+
+  const sendLog = (log: string) => {
+    res.write(`data: ${log}\n\n`);
+  };
+
+  subscribeLogs(id, sendLog);
+
+  req.on("close", () => {
+    unsubscribeLogs(id, sendLog);
+  });
+});
+
 
 export default router;
