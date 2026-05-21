@@ -1,40 +1,75 @@
 import { updateDeploymentStatus } from "../services/deployment.service";
 import { addLog } from "../logs/log.store";
+import { runCommand } from "../utils/exec";
+import { getDeploymentPath } from "../utils/paths";
+import { allocatePort } from "../utils/ports";
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+export const runPipeline = async (
+    deploymentId: string,
+    gitUrl: string
+) => {
+    const deploymentPath = getDeploymentPath(deploymentId);
+    const imageTag = `app-${deploymentId}`;
+    const port = allocatePort();
 
-export const runPipeline = async (deploymentId: string) => {
     try {
+        // ----------------------------
         // BUILDING
+        // ----------------------------
         await updateDeploymentStatus(deploymentId, "building");
-        addLog(deploymentId, "Starting build...");
-        await sleep(1500);
 
-        addLog(deploymentId, "Installing dependencies...");
-        await sleep(1500);
+        addLog(deploymentId, "Cloning repository...");
 
-        addLog(deploymentId, "Building project...");
-        await sleep(1500);
+        await runCommand(
+            `git clone ${gitUrl} .`,
+            deploymentPath,
+            (log) => addLog(deploymentId, log)
+        );
 
+        addLog(deploymentId, "Repository cloned.");
+
+        // ----------------------------
+        // RAILPACK BUILD
+        // ----------------------------
+        addLog(deploymentId, "Building image with Railpack...");
+
+        await runCommand(
+            `railpack build -t ${imageTag} .`,
+            deploymentPath,
+            (log) => addLog(deploymentId, log)
+        );
+
+        addLog(deploymentId, "Image build complete.");
+
+        // ----------------------------
         // DEPLOYING
+        // ----------------------------
         await updateDeploymentStatus(deploymentId, "deploying");
-        addLog(deploymentId, "Starting deployment...");
-        await sleep(1500);
 
-        addLog(deploymentId, "Allocating port...");
-        await sleep(1000);
+        addLog(deploymentId, "Starting container...");
 
+        await runCommand(
+            `docker run -d --name ${imageTag} -p ${port}:3000 ${imageTag}`,
+            deploymentPath,
+            (log) => addLog(deploymentId, log)
+        );
+
+        const url = `http://localhost:${port}`;
+
+        // ----------------------------
         // RUNNING
-        const fakeUrl = `http://localhost/app/${deploymentId}`;
-
+        // ----------------------------
         await updateDeploymentStatus(deploymentId, "running", {
-            imageTag: `app:${deploymentId}`,
-            url: fakeUrl,
+            imageTag,
+            url,
         });
 
-        addLog(deploymentId, "Deployment successful 🚀");
-    } catch (err) {
+        addLog(deploymentId, `Deployment live at ${url}`);
+    } catch (err: any) {
+        console.error(err);
+
         await updateDeploymentStatus(deploymentId, "failed");
-        addLog(deploymentId, "Deployment failed ❌");
+
+        addLog(deploymentId, `ERROR: ${err.message}`);
     }
 };

@@ -28,7 +28,7 @@ router.post("/", async (req, res) => {
     });
 
     // 🔥 Trigger pipeline async (non-blocking)
-    runPipeline(deployment.id);
+    runPipeline(deployment.id, gitUrl);
 
     res.json(deployment);
   } catch (err) {
