@@ -1,4 +1,7 @@
-import { execa } from "execa";
+import { exec } from "child_process";
+import { promisify } from "util";
+
+const execAsync = promisify(exec);
 
 export const runCommand = async (
     command: string,
@@ -6,27 +9,23 @@ export const runCommand = async (
     onLog?: (msg: string) => void
 ): Promise<any> => {
     return new Promise((resolve, reject) => {
-        const subprocess = execa(command, {
-            cwd,
-            shell: true,
-        });
-
-        subprocess.stdout?.on("data", (data) => {
-            const msg = data.toString().trim();
-            if (msg) onLog?.(msg);
-        });
-
-        subprocess.stderr?.on("data", (data) => {
-            const msg = data.toString().trim();
-            if (msg) onLog?.(msg);
-        });
-
-        subprocess
-            .then((result) => {
-                resolve(result);
-            })
-            .catch((err) => {
+        const child = exec(command, { cwd }, (err, stdout, stderr) => {
+            if (err) {
                 reject(new Error(err.message || "Command failed"));
-            });
+            } else {
+                resolve({ stdout, stderr });
+            }
+        });
+
+        // Stream output in real-time
+        child.stdout?.on("data", (data) => {
+            const msg = data.toString().trim();
+            if (msg) onLog?.(msg);
+        });
+
+        child.stderr?.on("data", (data) => {
+            const msg = data.toString().trim();
+            if (msg) onLog?.(msg);
+        });
     });
 };
