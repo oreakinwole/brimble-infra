@@ -4,19 +4,29 @@ export const runCommand = async (
     command: string,
     cwd?: string,
     onLog?: (msg: string) => void
-) => {
-    const subprocess = execa(command, {
-        cwd,
-        shell: true,
-    });
+): Promise<any> => {
+    return new Promise((resolve, reject) => {
+        const subprocess = execa(command, {
+            cwd,
+            shell: true,
+        });
 
-    subprocess.stdout?.on("data", (data) => {
-        onLog?.(data.toString());
-    });
+        subprocess.stdout?.on("data", (data) => {
+            const msg = data.toString().trim();
+            if (msg) onLog?.(msg);
+        });
 
-    subprocess.stderr?.on("data", (data) => {
-        onLog?.(data.toString());
-    });
+        subprocess.stderr?.on("data", (data) => {
+            const msg = data.toString().trim();
+            if (msg) onLog?.(msg);
+        });
 
-    return subprocess;
+        subprocess
+            .then((result) => {
+                resolve(result);
+            })
+            .catch((err) => {
+                reject(new Error(err.message || "Command failed"));
+            });
+    });
 };

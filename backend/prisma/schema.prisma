@@ -11,8 +11,9 @@ model Deployment {
   id         String   @id @default(uuid())
   sourceType String
   source     String
-  status     String
+  status     String   // pending, building, deploying, running, failed
   imageTag   String?
   url        String?
+  port       String?
   createdAt  DateTime @default(now())
 }
