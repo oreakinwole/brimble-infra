@@ -31,7 +31,7 @@ export const getDeploymentById = async (id: string) => {
 export const updateDeploymentStatus = async (
   id: string,
   status: string,
-  extra?: { imageTag?: string; url?: string }
+  extra?: { imageTag?: string; url?: string; port?: string }
 ) => {
   return prisma.deployment.update({
     where: { id },
