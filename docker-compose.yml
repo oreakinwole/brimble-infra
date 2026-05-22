@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "4000:4000"
+    environment:
+      DATABASE_URL: "file:./dev.db"
+      NODE_ENV: development
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./backend/src:/app/src
+      - ./deployments:/app/deployments
+    depends_on:
+      - caddy
+    networks:
+      - brimble
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_URL: http://localhost:4000
+    networks:
+      - brimble
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - brimble
+
+volumes:
+  caddy_data:
+  caddy_config:
+
+networks:
+  brimble:
+    driver: bridge
