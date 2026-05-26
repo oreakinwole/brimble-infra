@@ -2,13 +2,21 @@ FROM node:18-alpine
 
 WORKDIR /app
 
-# Install essential tools: git, curl, docker CLI, bash
-RUN apk add --no-cache git curl docker-cli bash
+# Install essential tools
+RUN apk add --no-cache git curl docker-cli bash ca-certificates
 
-# Install Railpack - use direct binary download
-RUN curl -L https://github.com/railwayapp/railpack/releases/download/v0.1.0/railpack-linux-arm64 -o /usr/local/bin/railpack && \
-    chmod +x /usr/local/bin/railpack && \
-    railpack --version || echo "Railpack installed"
+# Download and install Railpack binary directly
+RUN mkdir -p /root/.local/bin && \
+    cd /tmp && \
+    curl -sSL -o railpack.tar.gz https://github.com/railwayapp/railpack/releases/download/v0.23.0/railpack-v0.23.0-arm64-unknown-linux-musl.tar.gz && \
+    tar -xzf railpack.tar.gz && \
+    mv railpack /root/.local/bin/ && \
+    chmod +x /root/.local/bin/railpack && \
+    rm railpack.tar.gz && \
+    cd /app
+
+# Set PATH
+ENV PATH="/root/.local/bin:$PATH"
 
 COPY package*.json ./
 RUN npm install

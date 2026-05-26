@@ -11,6 +11,8 @@ export const runPipeline = async (
     const deploymentPath = getDeploymentPath(deploymentId);
     const imageTag = `app-${deploymentId}`;
     const port = allocatePort();
+    const containerName = `brimble-${deploymentId}`;
+    const buildkitName = `buildkit-${deploymentId}`;
 
     try {
         // BUILDING
@@ -30,12 +32,26 @@ export const runPipeline = async (
 
         addLog(deploymentId, "✅ Repository cloned.");
 
+        // START BUILDKIT
+        addLog(deploymentId, "🔧 Starting BuildKit...");
+        try {
+            await runCommand(
+                `docker run --rm --privileged -d --name ${buildkitName} moby/buildkit`,
+                undefined,
+                (log) => addLog(deploymentId, log)
+            );
+            // Give BuildKit a moment to start
+            await new Promise(resolve => setTimeout(resolve, 2000));
+        } catch (err) {
+            addLog(deploymentId, "⚠️ BuildKit may already be running, continuing...");
+        }
+
         // RAILPACK BUILD
         addLog(deploymentId, "🔨 Building image with Railpack...");
 
         try {
             await runCommand(
-                `railpack build -t ${imageTag} .`,
+                `BUILDKIT_HOST=docker-container://${buildkitName} railpack build --name ${imageTag} .`,
                 deploymentPath,
                 (log) => addLog(deploymentId, log)
             );
@@ -50,21 +66,16 @@ export const runPipeline = async (
 
         addLog(deploymentId, "🚀 Starting container...");
 
-        // Generate unique container name to avoid conflicts
-        const containerName = `brimble-${deploymentId}`;
-
         try {
-            // Clean up any existing container with same name
             await runCommand(
                 `docker rm -f ${containerName} 2>/dev/null || true`,
-                deploymentPath,
+                undefined,
                 (log) => addLog(deploymentId, log)
             );
 
-            // Run container with proper port mapping
             await runCommand(
                 `docker run -d --name ${containerName} -p ${port}:3000 ${imageTag}`,
-                deploymentPath,
+                undefined,
                 (log) => addLog(deploymentId, log)
             );
         } catch (dockerErr) {
@@ -73,7 +84,6 @@ export const runPipeline = async (
 
         const url = `http://localhost:${port}`;
 
-        // RUNNING
         await updateDeploymentStatus(deploymentId, "running", {
             imageTag,
             url,
@@ -81,11 +91,16 @@ export const runPipeline = async (
         });
 
         addLog(deploymentId, `✅ Deployment live at ${url}`);
+
     } catch (err: any) {
         console.error("[pipeline]", err);
-
         await updateDeploymentStatus(deploymentId, "failed");
-
         addLog(deploymentId, `❌ ERROR: ${err.message}`);
+    } finally {
+        // Clean up BuildKit container
+        await runCommand(
+            `docker rm -f ${buildkitName} 2>/dev/null || true`,
+            undefined
+        ).catch(() => {});
     }
 };
