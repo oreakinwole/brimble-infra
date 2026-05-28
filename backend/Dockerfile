@@ -1,22 +1,27 @@
-FROM node:18-alpine
+FROM node:18-slim
 
 WORKDIR /app
 
 # Install essential tools
-RUN apk add --no-cache git curl docker-cli bash ca-certificates
+RUN apt-get update && apt-get install -y git curl bash ca-certificates && \
+    mkdir -m 0755 -p /etc/apt/keyrings && \
+    curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null && \
+    apt-get update && apt-get install -y docker-ce-cli && \
+    rm -rf /var/lib/apt/lists/*
 
-# Download and install Railpack binary directly
-RUN mkdir -p /root/.local/bin && \
-    cd /tmp && \
-    curl -sSL -o railpack.tar.gz https://github.com/railwayapp/railpack/releases/download/v0.23.0/railpack-v0.23.0-arm64-unknown-linux-musl.tar.gz && \
-    tar -xzf railpack.tar.gz && \
-    mv railpack /root/.local/bin/ && \
-    chmod +x /root/.local/bin/railpack && \
-    rm railpack.tar.gz && \
-    cd /app
+# Set PATH early so mise and railpack are available in all subsequent steps
+ENV PATH="/root/.local/share/mise/shims:/root/.local/bin:$PATH"
+ENV MISE_DATA_DIR="/root/.local/share/mise"
 
-# Set PATH
-ENV PATH="/root/.local/bin:$PATH"
+# Install mise first
+RUN curl -sSL https://mise.run | sh
+
+# Install railpack via mise and set it as the global default
+RUN /root/.local/bin/mise use -g github:railwayapp/railpack@latest
+
+# Verify railpack is accessible
+RUN railpack --version || echo "Railpack version check failed"
 
 COPY package*.json ./
 RUN npm install
