@@ -24,3 +24,6 @@ backend/prisma/migrations/
 
 # TypeScript
 *.tsbuildinfo
+
+
+/deployments
