@@ -6,6 +6,8 @@ import './Dashboard.css'
 export default function Dashboard() {
     const [gitUrl, setGitUrl] = useState('')
     const [selectedId, setSelectedId] = useState<string | null>(null)
+    const [logs, setLogs] = useState<string[]>([])
+    const [uploading, setUploading] = useState(false)
     const queryClient = useQueryClient()
 
     // Fetch deployments
@@ -15,15 +17,27 @@ export default function Dashboard() {
         refetchInterval: 2000,
     })
 
-    // Fetch logs for selected deployment
-    const { data: logs = [] } = useQuery({
-        queryKey: ['logs', selectedId],
-        queryFn: () => selectedId ? api.streamLogs(selectedId) : Promise.resolve([]),
-        enabled: !!selectedId,
-        refetchInterval: 500,
-    })
+    // SSE: subscribe to logs for selected deployment
+    useEffect(() => {
+        setLogs([])
+        if (!selectedId) return
 
-    // Create deployment mutation
+        const es = new EventSource(`${apiBase()}/deployments/${selectedId}/logs`)
+
+        es.onmessage = (evt) => {
+            setLogs((prev) => [...prev, evt.data])
+        }
+
+        es.onerror = () => {
+            es.close()
+        }
+
+        return () => {
+            es.close()
+        }
+    }, [selectedId])
+
+    // Create deployment mutation (git URL)
     const createMutation = useMutation({
         mutationFn: (url: string) => api.createDeployment(url),
         onSuccess: () => {
@@ -37,6 +51,33 @@ export default function Dashboard() {
         if (gitUrl.trim()) {
             createMutation.mutate(gitUrl)
         }
+    }
+
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files && e.target.files[0]
+        if (!file) return
+
+        const reader = new FileReader()
+        reader.onload = async () => {
+            const dataUrl = reader.result as string
+            const base64 = dataUrl.split(',')[1]
+            setUploading(true)
+            try {
+                await fetch(`${apiBase()}/deployments`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ uploadBase64: base64, filename: file.name }),
+                })
+                queryClient.invalidateQueries({ queryKey: ['deployments'] })
+            } catch (err) {
+                console.error('Upload failed', err)
+                alert('Upload failed')
+            } finally {
+                setUploading(false)
+            }
+        }
+        // Read as data URL so we can extract base64 safely
+        reader.readAsDataURL(file)
     }
 
     return (
@@ -55,11 +96,17 @@ export default function Dashboard() {
                             placeholder="https://github.com/user/repo"
                             value={gitUrl}
                             onChange={(e) => setGitUrl(e.target.value)}
-                            disabled={createMutation.isPending}
+                            disabled={createMutation.isPending || uploading}
                         />
-                        <button type="submit" disabled={createMutation.isPending}>
-                            {createMutation.isPending ? 'Deploying...' : 'Deploy'}
-                        </button>
+                        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                            <button type="submit" disabled={createMutation.isPending || uploading}>
+                                {createMutation.isPending ? 'Deploying...' : 'Deploy'}
+                            </button>
+                            <label className="file-upload">
+                                <input type="file" accept=".tar.gz,.tgz,.zip" onChange={handleFileChange} disabled={uploading || createMutation.isPending} />
+                                <span>{uploading ? 'Uploading...' : 'Upload & Deploy'}</span>
+                            </label>
+                        </div>
                     </form>
 
                     <div className="deployments-list">
@@ -70,8 +117,7 @@ export default function Dashboard() {
                             deployments.map((dep: any) => (
                                 <div
                                     key={dep.id}
-                                    className={`deployment-item ${dep.status} ${selectedId === dep.id ? 'selected' : ''
-                                        }`}
+                                    className={`deployment-item ${dep.status} ${selectedId === dep.id ? 'selected' : ''}`}
                                     onClick={() => setSelectedId(dep.id)}
                                 >
                                     <div className="dep-header">
@@ -119,4 +165,9 @@ export default function Dashboard() {
             </div>
         </div>
     )
+}
+
+// helper to match api.ts API_BASE
+function apiBase() {
+    return 'http://localhost:4000'
 }

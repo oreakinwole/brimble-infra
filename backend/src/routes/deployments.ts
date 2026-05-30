@@ -1,27 +1,53 @@
 import { Router } from "express";
-import {
-  createDeployment,
-  countDeployments,
-  getDeploymentById,
-  listDeployments,
-} from "../services/deployment.service";
+import fs from "fs";
+import path from "path";
+import { createDeployment, countDeployments, getDeploymentById, listDeployments } from "../services/deployment.service";
 import { runPipeline } from "../pipeline/runner";
-import {
-  getLogs,
-  subscribeLogs,
-  unsubscribeLogs,
-} from "../logs/log.store";
+import { getLogs, subscribeLogs, unsubscribeLogs } from "../logs/log.store";
+import { getDeploymentPath } from "../utils/paths";
+import { runCommand } from "../utils/exec";
 
 const router = Router();
 
 router.post("/", async (req, res) => {
   try {
-    const { gitUrl } = req.body;
+    const { gitUrl, uploadBase64, filename } = req.body;
 
-    if (!gitUrl) {
-      return res.status(400).json({ error: "gitUrl is required" });
+    if (!gitUrl && !uploadBase64) {
+      return res.status(400).json({ error: "gitUrl or uploadBase64 is required" });
     }
 
+    if (uploadBase64) {
+      // Create deployment record
+      const deployment = await createDeployment({
+        sourceType: "upload",
+        source: filename || "uploaded-project",
+      });
+
+      const deploymentPath = getDeploymentPath(deployment.id);
+      fs.mkdirSync(deploymentPath, { recursive: true });
+
+      const tmpFile = path.join(deploymentPath, "upload.tar.gz");
+      fs.writeFileSync(tmpFile, Buffer.from(uploadBase64, "base64"));
+
+      try {
+        await runCommand(
+          `tar -xzf ${tmpFile} -C ${deploymentPath} --strip-components=1`,
+          undefined,
+          (log) => console.log(log)
+        );
+      } catch (err) {
+        console.error("Failed to extract upload:", err);
+        return res.status(500).json({ error: "Failed to extract upload" });
+      }
+
+      // Run pipeline using local path
+      runPipeline(deployment.id, `file://${deploymentPath}`);
+
+      return res.json(deployment);
+    }
+
+    // gitUrl flow
     const deployment = await createDeployment({
       sourceType: "git",
       source: gitUrl,
@@ -32,6 +58,7 @@ router.post("/", async (req, res) => {
 
     res.json(deployment);
   } catch (err) {
+    console.error(err);
     res.status(500).json({ error: "Failed to create deployment" });
   }
 });
@@ -71,7 +98,6 @@ router.get("/:id", async (req, res) => {
   }
 });
 
-
 router.get("/:id/logs", (req, res) => {
   const { id } = req.params;
 
@@ -95,6 +121,5 @@ router.get("/:id/logs", (req, res) => {
     unsubscribeLogs(id, sendLog);
   });
 });
-
 
 export default router;

@@ -6,7 +6,7 @@ import { allocatePort } from "../utils/ports";
 
 export const runPipeline = async (
     deploymentId: string,
-    gitUrl: string
+    source: string
 ) => {
     const deploymentPath = getDeploymentPath(deploymentId);
     const imageTag = `app-${deploymentId}`;
@@ -18,19 +18,24 @@ export const runPipeline = async (
         // BUILDING
         await updateDeploymentStatus(deploymentId, "building");
 
-        addLog(deploymentId, "🔄 Cloning repository...");
+        // If source is a file:// path, assume code is already in deploymentPath
+        if (source.startsWith('file://')) {
+            addLog(deploymentId, "📦 Using uploaded project archive (extracted to deployment path)...");
+        } else {
+            addLog(deploymentId, "🔄 Cloning repository...");
 
-        try {
-            await runCommand(
-                `git clone ${gitUrl} .`,
-                deploymentPath,
-                (log) => addLog(deploymentId, log)
-            );
-        } catch (gitErr) {
-            throw new Error(`Git clone failed: ${gitErr}`);
+            try {
+                await runCommand(
+                    `git clone ${source} .`,
+                    deploymentPath,
+                    (log) => addLog(deploymentId, log)
+                );
+            } catch (gitErr) {
+                throw new Error(`Git clone failed: ${gitErr}`);
+            }
+
+            addLog(deploymentId, "✅ Repository cloned.");
         }
-
-        addLog(deploymentId, "✅ Repository cloned.");
 
         // START BUILDKIT
         addLog(deploymentId, "🔧 Starting BuildKit...");
